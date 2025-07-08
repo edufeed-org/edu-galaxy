@@ -256,12 +256,13 @@
       const overlay = document.getElementById('node-overlay')
       const discussionPanel = document.getElementById('discussion-panel')
       const discussionContent = document.getElementById('discussion-content')
-      discussionPanel
-        .querySelector('.close-btn-discussion')
-        .addEventListener('click', () => {
+      const closeBtn = discussionPanel?.querySelector('.close-btn-discussion')
+      if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
           discussionPanel.style.display = 'none'
           discussionContent.innerHTML = ''
         })
+      }
 
       const input = document.querySelector('input[type=text]')
       input.addEventListener('keydown', async (e) => {
