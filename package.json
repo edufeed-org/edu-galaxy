@@ -18,6 +18,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {
+    "caniuse-lite": "^1.0.30001727",
     "parcel": "^2.15.4"
   },
   "dependencies": {
@@ -28,5 +29,8 @@
   },
   "alias": {
     "three/webgpu": "./node_modules/three/build/three.webgpu.js"
-  }
+  },
+  "browserslist": [
+    "cover 85.0%"
+  ]
 }
