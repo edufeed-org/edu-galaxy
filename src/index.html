@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nostr-Test</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      #container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+      #graph {
+        width: 100%;
+        height: 100%;
+      }
+      #node-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+      }
+      .node-div {
+        position: absolute;
+        display: none;
+        transform-origin: 0 0;
+        background: #fff;
+        color: #000;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px 16px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        cursor: pointer;
+        pointer-events: auto;
+        transition: transform 0.2s, opacity 0.2s;
+        max-width: 800px;
+        overflow: hidden;
+      }
+      .node-div .close-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: transparent;
+        border: none;
+        font-size: 18px;
+        cursor: pointer;
+      }
+      .node-div .discussion-btn {
+        position: absolute;
+        top: 8px;
+        right: 40px;
+        background: #007bff;
+        border: none;
+        color: #fff;
+        padding: 4px 8px;
+        font-size: 12px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .node-div .content {
+        margin-top: 32px;
+        overflow: auto;
+        max-height: 560px;
+      }
+      .node-div img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+      /* Discussion panel */
+      #discussion-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 30vw;
+        max-width: 400px;
+        height: 100%;
+        background: #f9f9f9;
+        border-left: 1px solid #ddd;
+        padding: 16px;
+        overflow-y: auto;
+        z-index: 10000;
+        display: none;
+      }
+      #discussion-panel .close-btn-discussion {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: transparent;
+        border: none;
+        font-size: 18px;
+        cursor: pointer;
+      }
+      #discussion-panel h2 {
+        margin-top: 0;
+      }
+      #discussion-panel .reply {
+        margin-bottom: 16px;
+      }
+      #discussion-panel .reply-meta {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 4px;
+      }
+      /* Relay List UI */
+      #relay-list {
+        position: absolute;
+        bottom: 3rem;
+        left: 1rem;
+        width: 260px;
+        max-height: 200px;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+        border: 1px solid #fff;
+        border-radius: 4px;
+        padding: 8px;
+        overflow-y: auto;
+        font-size: 12px;
+        line-height: 1.4;
+        z-index: 100000;
+      }
+      #relay-list h3 {
+        margin: 0 0 4px;
+        font-size: 14px;
+        text-align: center;
+      }
+      #relay-list ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      #relay-list li {
+        word-break: break-all;
+        margin-bottom: 4px;
+      }
+
+      #info {
+        position: absolute;
+        bottom: 1rem;
+        left: 1rem;
+        background: rgba(0, 0, 0, 0.5);
+        color: #fff;
+        padding: 8px;
+        font-size: 12px;
+        line-height: 1.4;
+        z-index: 100000;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="container">
+      <div id="graph"></div>
+      <div id="node-overlay"></div>
+      <div id="discussion-panel">
+        <button class="close-btn-discussion">&times;</button>
+        <div id="discussion-content"></div>
+      </div>
+      <input
+        style="z-index: 10000000; position: absolute; top: 1rem; left: 1rem"
+        type="text"
+        placeholder="Query #tag…"
+      />
+      <div id="relay-list">
+        <h3>Relays</h3>
+        <ul></ul>
+      </div>
+      <div id="info"></div>
+    </div>
+
+    <script type="module">
+      import ForceGraph3D from '3d-force-graph'
+      import * as THREE from 'three'
+
+      import markdownit from 'markdown-it'
+      import { SimplePool } from 'nostr-tools/lib/cjs/pool.js'
+
+      // ─── Initial Nostr relays ───
+      const relays = [
+        'wss://relay.damus.io',
+        'wss://relay.nostr.band',
+        'wss://nos.lol',
+        'wss://relay-hed.edufeed.org',
+        'wss://relay-k12.edufeed.org',
+
+        'wss://relay.snort.social',
+        'wss://offchain.pub',
+        'wss://nostr.bitcoiner.social',
+      ]
+
+      // ─── UI helpers for dynamic relay list ───
+      const relayListEl = document.querySelector('#relay-list ul')
+      function updateRelayListUI() {
+        relayListEl.innerHTML = relays.map((r) => `<li>${r}</li>`).join('')
+      }
+      function addRelay(url) {
+        return
+        if (!relays.includes(url)) {
+          relays.push(url)
+          updateRelayListUI()
+        }
+      }
+      updateRelayListUI()
+
+      const pool = new SimplePool()
+      const md = markdownit({ html: true, linkify: true, typographer: true })
+
+      const data = { nodes: [], links: [] }
+      const nodesById = new Map()
+      const eventsById = new Map()
+      const nodeEls = new Map()
+      const degreesById = new Map()
+      const tagQueryInfo = new Map()
+
+      const Graph = ForceGraph3D()(document.getElementById('graph'), {
+        controlType: 'orbit',
+      })
+        .graphData(data)
+        .backgroundColor('#000011')
+        .nodeRelSize(4)
+        .nodeVal((n) => (n.type === 'tag' ? degreesById.get(n.id) || 1 : 1))
+        .nodeColor((node) => {
+          const el = nodeEls.get(node.id)
+
+          // tags you’ve fetched, yellow until “finished”, then red
+          if (node.type === 'tag' && node.searchTag) {
+            return node.finished ? '#ff0000' : '#ffcc00'
+          }
+
+          // if overlay is open, highlight it
+          if (el && el.style.display === 'block') {
+            return '#ffff66'
+          }
+
+          // fallback by type
+          if (node.type === 'note') return '#00cc66'
+          if (node.type === 'longnote') return '#00aaff'
+          return '#88888850'
+        })
+        .onNodeClick(async (node) => {
+          if (node.type === 'tag') {
+            await queryAndBuild(node.id)
+          } else {
+            await toggleOverlay(node)
+          }
+        })
+
+      const overlay = document.getElementById('node-overlay')
+      const discussionPanel = document.getElementById('discussion-panel')
+      const discussionContent = document.getElementById('discussion-content')
+      discussionPanel
+        .querySelector('.close-btn-discussion')
+        .addEventListener('click', () => {
+          discussionPanel.style.display = 'none'
+          discussionContent.innerHTML = ''
+        })
+
+      const input = document.querySelector('input[type=text]')
+      input.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter') return
+        const tag = input.value.trim()
+        if (!tag) return
+        // start with no cursor and “not finished”
+        tagQueryInfo.set(tag, { until: undefined, finished: false })
+        await queryAndBuild(tag)
+        input.value = ''
+      })
+
+      async function queryAndBuild(searchTag) {
+        const info = tagQueryInfo.get(searchTag) || {
+          until: undefined,
+          finished: false,
+        }
+
+        // if already marked “done”, nothing to do
+        if (info.finished) return
+
+        const PAGE_SIZE = 50
+
+        const filter = {
+          kinds: [30023],
+          '#t': [searchTag],
+          limit: PAGE_SIZE,
+          ...(info.until && { until: info.until }),
+        }
+
+        const evs = await pool.querySync(relays, filter)
+
+        // if no new events → we’re done: mark finished & turn node red
+        if (!evs.length) {
+          const tagNode = nodesById.get(searchTag)
+          if (tagNode) {
+            tagNode.finished = true
+            Graph.graphData(data) // re-render so the color update takes effect
+          }
+          return
+        }
+
+        evs.forEach((ev) => {
+          // discover relays from metadata & r-tags
+          if (ev.kind === 10002) {
+            try {
+              const meta = JSON.parse(ev.content)
+              if (Array.isArray(meta.relays)) {
+                meta.relays.forEach((r) => {
+                  const url = typeof r === 'string' ? r : r.url
+                  if (url?.startsWith('ws://') || url?.startsWith('wss://'))
+                    addRelay(url)
+                })
+              }
+            } catch {}
+          }
+          ;(ev.tags || []).forEach((t) => {
+            if (
+              t[0] === 'r' &&
+              typeof t[1] === 'string' &&
+              (t[1].startsWith('ws://') || t[1].startsWith('wss://'))
+            ) {
+              addRelay(t[1])
+            }
+          })
+        })
+
+        const oldest = Math.min(...evs.map((e) => e.created_at))
+        tagQueryInfo.set(searchTag, {
+          until: oldest - 1,
+          finished: false, // still more pages until we hit the empty result
+        })
+
+        addTagNode(searchTag, true)
+        for (const ev of evs) {
+          if (eventsById.has(ev.id)) continue
+          eventsById.set(ev.id, ev)
+
+          const kindType = ev.kind === 1 ? 'note' : 'longnote'
+
+          addContentNode(
+            ev.id,
+            kindType,
+            getTag('title', ev.tags)?.[0],
+            ev.content
+          )
+          addLink(searchTag, ev.id)
+          getTag('t', ev.tags).forEach((t) => {
+            if (t === searchTag) return
+            addTagNode(t)
+            addLink(ev.id, t)
+          })
+        }
+
+        Graph.graphData(data)
+
+        document.getElementById(
+          'info'
+        ).innerText = `${data.nodes.length} Nodes ${data.links.length} Edges`
+      }
+
+      function getTag(name, list) {
+        return (list || []).filter((t) => t[0] === name).map((t) => t[1])
+      }
+
+      function addTagNode(id, searchTag = false) {
+        if (nodesById.has(id)) {
+          // and this call is marking it as the “search tag”,
+          // flip the flag on the existing node object
+          if (searchTag) {
+            const existing = nodesById.get(id)
+            existing.searchTag = true
+            // if you’re using searchTag in your visuals (e.g. a special color/size),
+            // re-trigger the graph to re-render:
+            //Graph.graphData(data)
+          }
+          return
+        }
+
+        const node = { id, name: id, type: 'tag', searchTag }
+        data.nodes.push(node)
+        nodesById.set(id, node)
+        degreesById.set(id, 0)
+        // createOverlayDiv(node)
+      }
+
+      function addContentNode(id, type, title, content) {
+        if (nodesById.has(id)) return
+        const node = {
+          id,
+          name: title || id.slice(0, 8),
+          type,
+          content,
+        }
+        data.nodes.push(node)
+        nodesById.set(id, node)
+        degreesById.set(id, 0)
+        // createOverlayDiv(node)
+      }
+
+      function addLink(src, dst) {
+        data.links.push({ source: src, target: dst })
+        degreesById.set(src, (degreesById.get(src) || 0) + 1)
+        degreesById.set(dst, (degreesById.get(dst) || 0) + 1)
+      }
+
+      function createOverlayDiv(node) {
+        const el = document.createElement('div')
+        el.className = `node-div ${node.type}`
+        el.innerHTML = `
+                <button class="close-btn">&times;</button>
+                <button class="discussion-btn" style="display:none">Discussion</button>
+                <div class="content"></div>`
+        overlay.appendChild(el)
+        nodeEls.set(node.id, el)
+
+        el.querySelector('.close-btn').addEventListener('click', (e) => {
+          e.stopPropagation()
+          el.style.display = 'none'
+          updateNodePositions()
+        })
+
+        el.querySelector('.discussion-btn').addEventListener('click', (e) => {
+          e.stopPropagation()
+          showDiscussion(node)
+        })
+
+        el.addEventListener('dblclick', (e) => {
+          e.stopPropagation()
+          centerOnNode(node)
+        })
+      }
+
+      async function toggleOverlay(node) {
+        if (!nodeEls.has(node.id)) {
+          createOverlayDiv(node)
+        }
+
+        const el = nodeEls.get(node.id)
+        const content = el.querySelector('.content')
+        const discBtn = el.querySelector('.discussion-btn')
+
+        // 1) Check if there are any replies (kind=1, referencing this node via 'e' tag).
+        //    We only need to know if there's at least one — limit:1 is faster.
+        pool
+          .querySync(relays, {
+            kinds: [1],
+            '#e': [node.id],
+            limit: 1,
+          })
+          .then((replies) =>
+            // 2) Show the button only if we got at least one reply.
+            {
+              if (replies.length > 0) {
+                discBtn.style.display = 'block'
+              } else {
+                discBtn.style.display = 'none'
+              }
+            }
+          )
+
+        let title = node.name
+        if (title) title = `<h1>${title}</h1>`
+        content.innerHTML = title + md.render(node.content || '[no content]')
+        el.style.display = el.style.display === 'block' ? 'none' : 'block'
+        el.dataset.focused = el.style.display === 'block'
+        updateNodePositions()
+      }
+
+      async function showDiscussion(node) {
+        discussionPanel.style.display = 'block'
+        discussionContent.innerHTML = `<h2>Discussion: ${node.name}</h2><p>Loading…</p>`
+
+        // fetch all replies (kind 1, referencing this node via 'e' tag)
+        const replies = await pool.querySync(relays, {
+          kinds: [1],
+          '#e': [node.id],
+          limit: 100,
+        })
+
+        discussionContent.innerHTML = `<h2>Discussion: ${node.name}</h2>`
+        if (!replies.length) {
+          discussionContent.innerHTML += '<p>No replies yet.</p>'
+          return
+        }
+
+        // sort by time
+        replies.sort((a, b) => a.created_at - b.created_at)
+        replies.forEach((rep) => {
+          const repEl = document.createElement('div')
+          repEl.className = 'reply'
+          repEl.innerHTML = `
+            <div class="reply-meta">
+              <strong>${rep.pubkey.slice(0, 8)}</strong>
+              &middot; ${new Date(rep.created_at * 1000).toLocaleString()}
+            </div>
+            <div>${md.render(rep.content)}</div>
+          `
+          discussionContent.appendChild(repEl)
+        })
+      }
+
+      const camera = Graph.camera()
+      const renderer = Graph.renderer()
+
+      function updateNodePositions() {
+        const W = renderer.domElement.clientWidth
+        const H = renderer.domElement.clientHeight
+        data.nodes.forEach((n) => {
+          const el = nodeEls.get(n.id)
+          if (!el || n.x == null) return
+          const pos = new THREE.Vector3(n.x, n.y, n.z).project(camera)
+          const x = ((pos.x + 1) / 2) * W
+          const y = ((1 - pos.y) / 2) * H
+          const dist = Math.hypot(
+            n.x - camera.position.x,
+            n.y - camera.position.y,
+            n.z - camera.position.z
+          )
+          let scale = 80 / dist
+          scale = Math.min(2, scale)
+          if (scale < 0.01) {
+            el.style.visibility = 'hidden'
+            return
+          }
+          const elW = el.offsetWidth
+          const elH = el.offsetHeight
+          const left = el.dataset.focused === 'true' ? x - (elW * scale) / 2 : x
+          const top = y - (elH * scale) / 2
+          el.style.left = `${left}px`
+          el.style.top = `${top}px`
+          el.style.transform = `scale(${scale})`
+          el.style.opacity = scale * 2
+          el.style.visibility = pos.z < -1 || pos.z > 1 ? 'hidden' : 'visible'
+        })
+      }
+
+      ;(function animate() {
+        updateNodePositions()
+        requestAnimationFrame(animate)
+      })()
+
+      function centerOnNode(node) {
+        const el = nodeEls.get(node.id)
+        el.dataset.focused = 'true'
+        const n = nodesById.get(node.id)
+        const W = renderer.domElement.clientWidth
+        const elW = el.offsetWidth
+        const desiredScale = (0.6 * W) / elW
+        const dist = 100 / desiredScale
+        Graph.cameraPosition(
+          { x: n.x, y: n.y, z: n.z + dist },
+          { x: n.x, y: n.y, z: n.z },
+          1000,
+          () => {
+            el.dataset.focused = 'false'
+          }
+        )
+      }
+
+      setTimeout(() => Graph.cameraPosition({ x: 0, y: 0, z: 200 }), 500)
+    </script>
+  </body>
+</html>

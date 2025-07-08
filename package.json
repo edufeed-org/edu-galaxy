@@ -1,0 +1,32 @@
+{
+  "name": "edu-galaxy",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/edufeed-org/edu-galaxy#readme",
+  "bugs": {
+    "url": "https://github.com/edufeed-org/edu-galaxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edufeed-org/edu-galaxy.git"
+  },
+  "license": "CC0-1.0",
+  "author": "André Dietrich",
+  "scripts": {
+    "watch": "npx parcel serve src/index.html --open --port 2345",
+    "build": "npx parcel build src/index.html --public-url ./",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "parcel": "^2.15.4"
+  },
+  "dependencies": {
+    "3d-force-graph": "^1.78.2",
+    "markdown-it": "^14.1.0",
+    "nostr-tools": "^2.15.0",
+    "three": "^0.178.0"
+  },
+  "alias": {
+    "three/webgpu": "./node_modules/three/build/three.webgpu.js"
+  }
+}
