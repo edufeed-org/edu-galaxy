@@ -14,7 +14,7 @@
   "author": "André Dietrich",
   "scripts": {
     "watch": "npx parcel serve src/index.html --open --port 2345",
-    "build": "npx parcel build src/index.html --public-url ./",
+    "build": "npx parcel build src/index.html --no-optimize --public-url ./",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {
